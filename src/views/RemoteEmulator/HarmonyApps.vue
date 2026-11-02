@@ -4,15 +4,26 @@ import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { UploadFilled, Box } from '@element-plus/icons';
 import Pageable from '@/components/Pageable.vue';
+import { createAppMetadataLoader } from './HarmonyAppMetadata.mjs';
 const props = defineProps({ ready: Boolean, blocked: Boolean, active: Boolean, request: Function, upload: Function });
 const { t } = useI18n();
 const emit = defineEmits(['busy']);
 const apps = ref([]), query = ref(''), busy = ref(false), error = ref(''), progress = ref(0), installing = ref(false);
 const page = ref(1), installTab = ref('upload'), dragOver = ref(false), fileInput = ref(null);
+const listLoading = ref(false), detailsLoading = ref(false), listed = ref(false);
 let generation = 0;
 const disabled = computed(() => !props.ready || busy.value || props.blocked);
 const filtered = computed(() => apps.value.filter(app => `${app.bundle} ${app.label || ''}`.toLowerCase().includes(query.value.toLowerCase())));
 const pageApps = computed(() => filtered.value.slice((page.value - 1) * 7, page.value * 7));
+const visibleBundles = computed(() => pageApps.value.map(app => app.bundle).join(','));
+const metadata = createAppMetadataLoader({
+ request: (...args) => props.request(...args),
+ loading: value => { detailsLoading.value = value; },
+ apply: (bundle, info) => {
+  const index = apps.value.findIndex(app => app.bundle === bundle);
+  if (index !== -1) apps.value[index] = { ...apps.value[index], ...info };
+ },
+});
 async function perform(task) {
  if (busy.value || props.blocked || !props.ready) return;
  busy.value = true; emit('busy', true); error.value = ''; progress.value = 0;
@@ -20,23 +31,13 @@ async function perform(task) {
 }
 async function loadApps() {
  const current = ++generation;
- const list = await props.request('listApps');
- if (current !== generation || !props.ready) return;
- apps.value = list; page.value = 1;
- // Fill rows progressively; one request at a time avoids competing with the live input path.
- // Stop on session changes so an old response can never populate a newly connected device.
- for (let i = 0; i < apps.value.length; i++) {
+ listLoading.value = true;
+ metadata.reset();
+ try {
+  const list = await props.request('listApps');
   if (current !== generation || !props.ready) return;
-  const app = apps.value[i];
-  try {
-   const info = await props.request('appInfo', { bundle: app.bundle });
-   if (current !== generation) return;
-   apps.value[i] = { ...app, ...info };
-  } catch {
-   if (current !== generation || !props.ready) return;
-   apps.value[i] = { ...app, unavailable: true };
-  }
- }
+  apps.value = list; page.value = 1; listed.value = true;
+ } finally { if (current === generation) listLoading.value = false; }
 }
 async function refresh() { await perform(loadApps); }
 async function action(operation, app) {
@@ -68,9 +69,16 @@ function choose(event) { const file = event.target.files?.[0]; event.target.valu
 function drop(event) { dragOver.value = false; install(event.dataTransfer?.files?.[0]); }
 watch(query, () => { page.value = 1; });
 watch(() => filtered.value.length, count => { page.value = Math.min(page.value, Math.max(1, Math.ceil(count / 7))); });
-watch(() => [props.active, props.ready], ([active, ready]) => { if (active && ready && !apps.value.length) refresh(); }, { immediate: true });
-watch(() => props.ready, ready => { if (!ready) { generation++; apps.value = []; } });
-onBeforeUnmount(() => { generation++; });
+watch([() => props.active, () => props.ready, () => props.blocked, busy], ([active, ready, blocked, working]) => {
+ if (active && ready && !blocked && !working && !listed.value && !error.value) refresh();
+}, { immediate: true });
+watch([() => props.active, () => props.ready, () => props.blocked, busy, visibleBundles], () => {
+ metadata.update(pageApps.value, props.active && props.ready && !props.blocked && !busy.value);
+}, { immediate: true });
+watch(() => props.ready, ready => {
+ if (!ready) { generation++; apps.value = []; listed.value = false; listLoading.value = false; error.value = ''; metadata.reset(); }
+});
+onBeforeUnmount(() => { generation++; metadata.dispose(); });
 </script>
 <template>
  <div class="apps-panel">
@@ -93,9 +101,10 @@ onBeforeUnmount(() => { generation++; });
   </el-tabs>
   <el-alert v-if="error" class="operation-error" :title="error" type="error" :closable="false" />
   <el-card shadow="hover" class="apps-table-card">
+   <p v-if="detailsLoading" class="details-status" role="status">{{ t('harmonyApps.loadingPage') }}</p>
    <el-table :data="pageApps" border>
     <el-table-column width="100" header-align="center" align="center">
-     <template #header><el-button size="mini" :disabled="disabled" :loading="busy && !installing" @click="refresh">{{ t('harmonyTools.refresh') }}</el-button></template>
+     <template #header><el-button size="mini" :disabled="disabled" :loading="listLoading" @click="refresh">{{ t('harmonyTools.refresh') }}</el-button></template>
      <template #default><el-avatar shape="square" :size="40" class="app-avatar" :title="t('harmonyApps.iconUnavailable')"><el-icon :size="24"><Box /></el-icon></el-avatar></template>
     </el-table-column>
     <el-table-column :label="t('androidRemoteTS.code.appName')" width="150" header-align="center" show-overflow-tooltip>
@@ -118,5 +127,5 @@ onBeforeUnmount(() => { generation++; });
  </div>
 </template>
 <style scoped>
-.apps-panel{min-width:0}.install-tabs :deep(.el-tabs__item){font-weight:600}.install-tabs :deep(.el-tabs__content){padding:15px;border-left:0;height:auto!important;overflow:visible}.upload-area{text-align:center;padding:0 0 2px}.hap-dropzone{box-sizing:border-box;max-width:100%;width:360px;height:180px;margin:auto;border:1px dashed #d9d9d9;border-radius:6px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;cursor:pointer;font-size:14px;color:#606266;background:#fff}.hap-dropzone:hover,.hap-dropzone.dragging{border-color:#409eff;background:#f5faff}.hap-dropzone:focus-visible{outline:2px solid #409eff;outline-offset:3px}.hap-dropzone.disabled{cursor:default;background:#fafafa;color:#a8abb2}.upload-icon{font-size:60px;color:#c0c4cc}.hap-dropzone em{color:#409eff;font-style:normal}.upload-tip{font-size:12px;color:#909399;margin-top:12px}.install-progress{max-width:360px;margin:12px auto 0}.apps-table-card{margin-top:15px;border-radius:16px}.apps-table-card :deep(.el-card__body){padding:20px}.apps-table-card :deep(.el-table td){height:64px;box-sizing:border-box}.apps-table-card :deep(.el-table__row:nth-child(odd)){background:#f5f7fa}.app-avatar{background:#edf2f8;color:#909399}.operation-error{margin-top:15px}
+.apps-panel{min-width:0}.details-status{font-size:12px;color:#909399;margin:0 0 10px}.install-tabs :deep(.el-tabs__item){font-weight:600}.install-tabs :deep(.el-tabs__content){padding:15px;border-left:0;height:auto!important;overflow:visible}.upload-area{text-align:center;padding:0 0 2px}.hap-dropzone{box-sizing:border-box;max-width:100%;width:360px;height:180px;margin:auto;border:1px dashed #d9d9d9;border-radius:6px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;cursor:pointer;font-size:14px;color:#606266;background:#fff}.hap-dropzone:hover,.hap-dropzone.dragging{border-color:#409eff;background:#f5faff}.hap-dropzone:focus-visible{outline:2px solid #409eff;outline-offset:3px}.hap-dropzone.disabled{cursor:default;background:#fafafa;color:#a8abb2}.upload-icon{font-size:60px;color:#c0c4cc}.hap-dropzone em{color:#409eff;font-style:normal}.upload-tip{font-size:12px;color:#909399;margin-top:12px}.install-progress{max-width:360px;margin:12px auto 0}.apps-table-card{margin-top:15px;border-radius:16px}.apps-table-card :deep(.el-card__body){padding:20px}.apps-table-card :deep(.el-table td){height:64px;box-sizing:border-box}.apps-table-card :deep(.el-table__row:nth-child(odd)){background:#f5f7fa}.app-avatar{background:#edf2f8;color:#909399}.operation-error{margin-top:15px}
 </style>

@@ -61,11 +61,22 @@ function rpc(action) {
     if (!id) { reject(new Error(t('harmonyRemote.disconnectedShort'))); return; }
     const timer = setTimeout(() => {
       pending.delete(id); reject(new Error(t('harmonyTools.unknown'))); disconnect();
-    }, 150000);
+    }, action.type === 'operation' && !['listApps', 'appInfo'].includes(action.operation) ? 150000 : 25000);
     pending.set(id, { resolve, reject, timer });
   });
 }
-const request = (operation, args = {}) => rpc({ type: 'operation', operation, ...args });
+let managementQueue = Promise.resolve();
+function request(operation, args = {}) {
+  const owner = socket;
+  // Visible-row metadata can overlap a foreground click. Serialize management requests,
+  // while touch/video remain independent; never carry queued work into a new session.
+  const result = managementQueue.then(() => {
+    if (!owner || owner !== socket || !ready.value) throw new Error(t('harmonyTools.unknown'));
+    return rpc({ type: 'operation', operation, ...args });
+  });
+  managementQueue = result.catch(() => {});
+  return result;
+}
 async function upload(file, progress) {
   if (!file.size || file.size > 128 * 1024 * 1024) throw new Error(t('harmonyTools.fileLimit'));
   const info = await request('uploadBegin', { name: file.name, size: file.size });
@@ -142,7 +153,7 @@ function cancelPointer() {
 function disconnect() {
   cancelPointer(); ready.value = false; clearTimeout(connectTimer);
   for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error(t('harmonyTools.unknown'))); }
-  pending.clear();
+  pending.clear(); managementQueue = Promise.resolve();
   if (socket) { socket.onclose = socket.onmessage = socket.onerror = null; socket.close(); socket = null; }
   decoder?.destroy(); decoder = null;
 }
