@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import axios from '@/http/axios';
 import H264Decoder from './H264Decoder';
 import RenderDeviceName from '@/components/RenderDeviceName.vue';
-import { Cellphone, InfoFilled, Refresh, Camera, House, Back, SwitchButton, Close, FullScreen } from '@element-plus/icons';
+import { Cellphone, InfoFilled, Refresh, Camera, CopyDocument, House, Back, SwitchButton, Close, FullScreen } from '@element-plus/icons';
 const { t } = useI18n();
 const route = useRoute(), router = useRouter();
 const activeTab = ref('main'), screenshots = ref([]), ticker = ref(0), idleCount = ref(0);
@@ -180,6 +180,7 @@ onBeforeUnmount(() => { disposed = true; disconnect(); clearInterval(statsTimer)
               <canvas ref="canvas" width="542" height="1206" :aria-label="t('harmonyRemote.screen')"
                 @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @contextmenu.prevent />
               <div class="phone-navigation">
+                <el-button :disabled="!ready" :title="t('harmonyRemote.recents')" :aria-label="t('harmonyRemote.recents')" @click="send({ type: 'key', key: 'Recents' })"><el-icon><CopyDocument /></el-icon></el-button>
                 <el-button :disabled="!ready" :title="t('harmonyRemote.home')" @click="send({ type: 'key', key: 'Home' })"><el-icon><House /></el-icon></el-button>
                 <el-button :disabled="!ready" :title="t('harmonyRemote.back')" @click="send({ type: 'key', key: 'Back' })"><el-icon><Back /></el-icon></el-button>
               </div>
