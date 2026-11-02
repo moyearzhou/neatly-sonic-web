@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import axios from '@/http/axios';
 import H264Decoder from './H264Decoder';
 import RenderDeviceName from '@/components/RenderDeviceName.vue';
-import { Cellphone, InfoFilled, Refresh, Camera, House, Back, SwitchButton, Connection, Close, FullScreen } from '@element-plus/icons';
+import { Cellphone, InfoFilled, Refresh, Camera, House, Back, SwitchButton, Close, FullScreen } from '@element-plus/icons';
 const { t } = useI18n();
 const route = useRoute(), router = useRouter();
 const activeTab = ref('main'), screenshots = ref([]), ticker = ref(0), idleCount = ref(0);
@@ -231,8 +231,12 @@ onBeforeUnmount(() => { disposed = true; disconnect(); clearInterval(statsTimer)
 .header-content { display:flex; align-items:center; gap:12px; color:#909399; font-size:18px; }.session-time { display:flex; flex-direction:column; font-size:12px; line-height:16px; }
 .workbench-body { height:calc(100vh - 56px); display:flex; padding:0 20px 12px; box-sizing:border-box; }.device-column { flex:0 0 var(--device-width); min-width:250px; overflow:auto; padding-right:12px; box-sizing:border-box; }
 .device-card { border-radius:16px; }.device-heading {display:flex;align-items:center;gap:6px;font-size:14px;}.device-heading > span {color:#e6a23c;}.device-info {margin-left:auto; color:#909399;}
-.device-stage {display:flex;align-items:flex-start;gap:8px;}.phone-display {flex:1;min-width:0;max-width:calc((100vh - 190px) * var(--screen-ratio));}.phone-display canvas {display:block;width:100%;height:auto;background:#111;border:3px solid #303338;border-radius:24px 24px 0 0;box-sizing:border-box;touch-action:none;user-select:none;}
-.phone-navigation {display:flex;background:#fff;border:3px solid #303338;border-top:0;border-radius:0 0 24px 24px;overflow:hidden;}.phone-navigation .el-button {flex:1;border:0;background:transparent;margin:0;color:#909399;height:30px;}
+.device-stage {display:flex;align-items:flex-start;gap:8px;}.phone-display {display:flex;flex-direction:column;flex:1;min-width:0;max-width:calc((100vh - 225px) * var(--screen-ratio));}.phone-display canvas {display:block;width:100%;height:auto;background:#111;border:3px solid #303338;border-radius:24px;box-sizing:border-box;touch-action:none;user-select:none;}
+/* Keep host navigation outside the device frame, matching the Android remote panel. */
+.phone-navigation {display:flex;position:static;gap:1px;margin-top:16px;background:#b5b8be;border:0;border-radius:4px;overflow:hidden;flex-shrink:0;}
+.phone-navigation .el-button {flex:1;border:0;border-radius:0;background:#909399;margin:0;color:#fff;height:32px;}
+.phone-navigation .el-button:hover:not(:disabled) {background:#a1a5ac;color:#fff;}
+.phone-navigation .el-button:disabled {color:#e4e7ed;background:#a8abb2;}
 .device-toolbar {display:flex;flex-direction:column;gap:7px;padding-top:6px;}.device-toolbar .el-button {margin:0;}.stream-status {display:flex;justify-content:space-between;gap:6px;margin-top:8px;font-size:11px;color:#666;}.online {color:#24894c;}
 .splitter {flex:0 0 10px;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;border-left:2px solid #ddd;color:#aaa;}.splitter span{background:#eee;border-radius:8px;}
 .operation-column {flex:1;min-width:0;padding-left:4px;}.harmony-tabs {box-shadow:none;}.control-grid {display:grid;grid-template-columns:repeat(2,minmax(230px,1fr));gap:20px;margin-top:20px;}.control-grid p {overflow-wrap:anywhere;font-size:13px;}.card-actions {display:flex;gap:10px;margin-top:16px;}.instructions {margin-top:20px;line-height:1.7;font-size:14px;}.screenshot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-top:20px;}.screenshot-grid img{width:100%;display:block;margin-bottom:12px;}.screenshot-grid a{color:#409eff;}
