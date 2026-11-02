@@ -3,6 +3,9 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import axios from '@/http/axios';
+import { ElMessage } from 'element-plus';
+import HarmonyApps from './HarmonyApps.vue';
+import HarmonyFiles from './HarmonyFiles.vue';
 import H264Decoder from './H264Decoder';
 import RenderDeviceName from '@/components/RenderDeviceName.vue';
 import { Cellphone, InfoFilled, Refresh, Camera, CopyDocument, House, Back, SwitchButton, Close, FullScreen } from '@element-plus/icons';
@@ -36,6 +39,8 @@ function moveSplit(event) { if (event.pointerId === splitPointer) leftWidth.valu
 function endSplit() { splitPointer = null; }
 
 const canvas = ref(null), device = ref({}), ready = ref(false), message = ref(''), text = ref('');
+const toolsBusy = ref(false), textBusy = ref(false);
+const pending = new Map();
 const fps = ref(0), latency = ref(0);
 let socket, decoder, display, pointer, sequence = 0, disposed = false, frames = 0;
 let lastMove = 0, pendingMove, lastPoint, moveTimer, statsTimer, connectTimer;
@@ -45,7 +50,48 @@ function send(action) {
   if (!ready.value || socket?.readyState !== WebSocket.OPEN) return;
   if (socket.bufferedAmount > 65536) { ready.value = false; status('slow'); disconnect(); return; }
   idleCount.value = 0;
-  socket.send(JSON.stringify({ ...action, id: ++sequence }));
+  const id = ++sequence;
+  socket.send(JSON.stringify({ ...action, id }));
+  return id;
+}
+function rpc(action) {
+  if (!ready.value) return Promise.reject(new Error(t('harmonyRemote.disconnectedShort')));
+  return new Promise((resolve, reject) => {
+    const id = send(action);
+    if (!id) { reject(new Error(t('harmonyRemote.disconnectedShort'))); return; }
+    const timer = setTimeout(() => {
+      pending.delete(id); reject(new Error(t('harmonyTools.unknown'))); disconnect();
+    }, 150000);
+    pending.set(id, { resolve, reject, timer });
+  });
+}
+const request = (operation, args = {}) => rpc({ type: 'operation', operation, ...args });
+async function upload(file, progress) {
+  if (!file.size || file.size > 128 * 1024 * 1024) throw new Error(t('harmonyTools.fileLimit'));
+  const info = await request('uploadBegin', { name: file.name, size: file.size });
+  try {
+    for (let offset = 0; offset < file.size; offset += info.chunkSize) {
+      const bytes = new Uint8Array(await file.slice(offset, offset + info.chunkSize).arrayBuffer());
+      const data = btoa(String.fromCharCode(...bytes));
+      await request('uploadChunk', { transfer: info.transfer, offset, data });
+      progress(Math.round(Math.min(offset + bytes.length, file.size) / file.size * 100));
+    }
+    await request('uploadFinish', { transfer: info.transfer });
+    return info.transfer;
+  } catch (error) { await request('cancelTransfer').catch(() => {}); throw error; }
+}
+async function sendText() {
+  textBusy.value = true;
+  const sent = text.value;
+  try {
+    await rpc({ type: 'text', text: sent });
+    if (text.value === sent) text.value = '';
+    ElMessage.success(t('harmonyTools.success'));
+  } catch (error) { ElMessage.error(error.message); } finally { textBusy.value = false; }
+}
+async function pasteLocal() {
+  try { text.value = await navigator.clipboard.readText(); }
+  catch { ElMessage.info(t('harmonyTools.pasteHint')); }
 }
 function point(event) {
   if (!display || !canvas.value) return null;
@@ -95,6 +141,8 @@ function cancelPointer() {
 }
 function disconnect() {
   cancelPointer(); ready.value = false; clearTimeout(connectTimer);
+  for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error(t('harmonyTools.unknown'))); }
+  pending.clear();
   if (socket) { socket.onclose = socket.onmessage = socket.onerror = null; socket.close(); socket = null; }
   decoder?.destroy(); decoder = null;
 }
@@ -134,6 +182,12 @@ async function connect() {
         if (value.type === 'ready') { clearTimeout(connectTimer); ready.value = true; status('connected'); }
         if (value.type === 'error') { status('failed'); disconnect(); }
         if (value.type === 'ack') latency.value = value.ms;
+        if (value.type === 'result' || value.type === 'ack') {
+          const item = pending.get(value.id);
+          if (item) { clearTimeout(item.timer); pending.delete(value.id);
+            if (value.ok === false) item.reject(new Error(value.message)); else item.resolve(value.data);
+          }
+        }
         return;
       }
       if (event.data.byteLength < 10) return;
@@ -205,15 +259,19 @@ onBeforeUnmount(() => { disposed = true; disconnect(); clearInterval(statsTimer)
               <div class="control-grid">
                 <el-card><template #header><strong>{{ t('androidRemoteTS.code.inputText') }}</strong></template>
                   <el-input v-model="text" :disabled="!ready" type="textarea" :rows="6" maxlength="10000" :placeholder="t('harmonyRemote.textHint')" />
-                  <div class="card-actions"><el-button size="small" @click="text = ''">{{ t('androidRemoteTS.code.clear') }}</el-button><el-button size="small" type="primary" :disabled="!ready || !text" @click="send({ type: 'text', text }); text = '';">{{ t('androidRemoteTS.code.send') }}</el-button></div>
+                  <p>{{ t('harmonyTools.textHint') }}</p><el-button size="small" @click="pasteLocal">{{ t('harmonyTools.pasteLocal') }}</el-button>
+                  <div class="card-actions"><el-button size="small" @click="text = ''">{{ t('androidRemoteTS.code.clear') }}</el-button><el-button size="small" type="primary" :loading="textBusy" :disabled="!ready || !text || textBusy" @click="sendText">{{ t('androidRemoteTS.code.send') }}</el-button></div>
                 </el-card>
                 <el-card><template #header><strong>{{ t('harmonyRemote.connection') }}</strong></template>
                   <p>HarmonyOS NEXT · {{ device.version }}</p><p>{{ device.udId }}</p><p>{{ t('harmonyRemote.inputAck') }} {{ latency }} ms</p>
                   <div class="card-actions"><el-button size="small" :disabled="ready" @click="connect">{{ t('harmonyRemote.reconnect') }}</el-button><el-button size="small" :disabled="!ready" @click="disconnect(); status('disconnected')">{{ t('harmonyRemote.release') }}</el-button></div>
                 </el-card>
+                <HarmonyFiles :ready="ready" :blocked="toolsBusy" :request="request" :upload="upload" @busy="toolsBusy = $event" />
+                <el-card><template #header><strong>{{ t('harmonyTools.capabilities') }}</strong></template><p>{{ t('harmonyTools.nativeDriver') }}</p><p>{{ t('harmonyTools.clipboardHint') }}</p><p>{{ t('harmonyTools.adbHint') }}</p></el-card>
               </div>
               <el-card class="instructions"><template #header>{{ t('harmonyRemote.instructions') }}</template><p>{{ t('harmonyRemote.hint') }}</p></el-card>
             </template>
+            <HarmonyApps v-else-if="panel.name === 'apps'" :ready="ready" :active="activeTab === 'apps'" :blocked="toolsBusy" :request="request" :upload="upload" @busy="toolsBusy = $event" />
             <template v-else-if="panel.name === 'screenshots'">
               <div class="card-actions"><el-button type="primary" size="small" :disabled="!ready || screenshots.length >= 20" @click="screenshot">{{ t('androidRemoteTS.code.screenshot') }}</el-button><el-button size="small" @click="screenshots = []">{{ t('androidRemoteTS.code.clean') }}</el-button></div>
               <el-empty v-if="!screenshots.length" :description="t('androidRemoteTS.code.noScreenshots')" />
