@@ -83,6 +83,8 @@ const jump = (id, platform) => {
     routeData = router.resolve({
       path: `/AndroidRemote/${id}`,
     });
+  } else if (platform === 6) {
+    routeData = router.resolve({ path: `/HarmonyRemote/${id}` });
   } else {
     routeData = router.resolve({
       path: `/IOSRemote/${id}`,
@@ -236,6 +238,7 @@ const findAgentById = (id) => {
               style="width: 22px"
               :src="getImg('IOS')"
             />
+            <span v-if="device.platform === 6">HarmonyOS NEXT</span>
             <span style="margin-left: 6px">{{ device.version }}</span>
           </el-form-item>
           <el-form-item :label="$t('devices.form.battery.level')">
@@ -453,7 +456,7 @@ const findAgentById = (id) => {
             </div>
           </el-form-item>
           <el-form-item
-            v-if="device.platform !== 2"
+            v-if="device.platform === 1"
             :label="$t('devices.detail.pwd')"
           >
             <el-input
@@ -479,6 +482,7 @@ const findAgentById = (id) => {
               :cancel-button-text="$t('form.cancel')"
               icon="el-icon-warning"
               icon-color="red"
+              v-if="device.platform !== 6"
               :title="$t('devices.detail.rebootTips')"
               @confirm="reboot(device.id)"
             >

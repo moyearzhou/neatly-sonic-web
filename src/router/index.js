@@ -17,6 +17,11 @@ const getRoutes = () => [
     meta: { title: $tc('routes.remoteControl') },
   },
   {
+    path: '/HarmonyRemote/:deviceId(\\d+)',
+    component: () => import('../views/RemoteEmulator/HarmonyRemote.vue'),
+    meta: { title: $tc('routes.remoteControl') },
+  },
+  {
     path: '/IOSRemote/:deviceId(\\d+)',
     component: () => import('../views/RemoteEmulator/indexIOS.vue'),
     meta: { title: $tc('routes.remoteControl') },
